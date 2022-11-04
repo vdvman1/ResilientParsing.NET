@@ -1,0 +1,2 @@
+- It seems that assigning an instance of a reference type to an out parameter ends up calling a function. I suspect that that function is related to the GC
+- Cannot pass values by `ref` when that value is used in a `using`. Need to use `try ... finally` instead.
