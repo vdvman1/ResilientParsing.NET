@@ -1,4 +1,4 @@
-﻿using ResilientParsing.NET.Utilities;
+using ResilientParsing.NET.Utilities;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -20,12 +20,13 @@ namespace ResilientParsing.NET.Builders
         public ValueStringBuilder(Span<char> buffer)
         {
             Fallback = default;
-            Length = 0;
+            length = 0;
             InitialBuffer = buffer;
         }
 
         public ValueStringBuilder(int capacity)
         {
+            length = 0;
             var array = ArrayPool<char>.Shared.Rent(capacity);
             InitialBuffer = array.NonNullAsSpan();
             Fallback = array;
@@ -33,7 +34,7 @@ namespace ResilientParsing.NET.Builders
 
         public ValueStringBuilder(scoped ReadOnlySpan<char> value)
         {
-            Length = value.Length;
+            length = value.Length;
             var array = ArrayPool<char>.Shared.Rent(value.Length);
             Fallback = array;
             var span = array.NonNullAsSpan();
@@ -41,16 +42,61 @@ namespace ResilientParsing.NET.Builders
             value.CopyTo(span);
         }
 
-        public int Length { get; private set; }
+        private int length;
+        public int Length
+        {
+            get => length;
+            set
+            {
+                if (Fallback.Type == FallbackType.Builder)
+                {
+                    Fallback.Builder.Length = length = value;
+                    return;
+                }
+
+                if (value < 0)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(value), "Length cannot be less than zero.");
+                }
+
+                var diff = value - length;
+                switch (diff)
+                {
+                    case 0:
+                        return;
+                    case < 0:
+                        length = value;
+                        return;
+                    default:
+                        InternalAppend('\0', diff);
+                        return;
+                }
+            }
+        }
 
         public int Capacity
         {
             get => Fallback.Type == FallbackType.Builder ? Fallback.Builder.Capacity : InitialBuffer.Length;
             set
             {
+                if (value < length)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(value), "capacity was less than the current size.");
+                }
+
                 if (Fallback.Type == FallbackType.Builder)
                 {
-                    Fallback.Builder.Capacity = value;
+                    var builder = Fallback.Builder;
+                    if (value > InitialBuffer.Length)
+                    {
+                        builder.Capacity = value;
+                        return;
+                    }
+
+                    // value is >= length and <= InitialBuffer.Length
+                    // therefore length <= InitialBuffer.Length 
+                    builder.CopyTo(0, InitialBuffer, Math.Min(value, length));
+                    ReleaseBuilder();
                 }
                 else if (value > InitialBuffer.Length)
                 {
@@ -63,7 +109,7 @@ namespace ResilientParsing.NET.Builders
         {
             get
             {
-                var remaining = InitialBuffer.Length - Length;
+                var remaining = InitialBuffer.Length - length;
                 return remaining < 0 ? 0 : remaining;
             }
         }
@@ -71,11 +117,22 @@ namespace ResilientParsing.NET.Builders
         [IndexerName("Chars")]
         public char this[int index]
         {
-            // This is public API, so intentionally not using unsafe indexing and relying on the underlying indexer to bounds check
+            get
+            {
+                if ((uint)index >= (uint)length)
+                {
+                    throw new IndexOutOfRangeException();
+                }
 
-            get => Fallback.Type == FallbackType.Builder ? Fallback.Builder[index] : InitialBuffer[index];
+                return Fallback.Type == FallbackType.Builder ? Fallback.Builder[index] : InitialBuffer[index];
+            }
             set
             {
+                if ((uint)index >= (uint)length)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(index), "Index was out of range. Must be non-negative and less than the size of the collection.");
+                }
+
                 if (Fallback.Type == FallbackType.Builder)
                 {
                     Fallback.Builder[index] = value;
@@ -97,29 +154,57 @@ namespace ResilientParsing.NET.Builders
                     InitialBuffer = Span<char>.Empty;
                     break;
                 case FallbackType.Builder:
-                    StringBuilderCache.Release(Fallback.Builder);
-                    Fallback = default;
-                    Debug.Assert(InitialBuffer.IsEmpty);
+                    ReleaseBuilder();
                     break;
             }
 
-            Length = 0;
+            length = 0;
         }
 
         // TODO: Add more methods from StringBuilder
 
-        public void Append(char c)
+        public void Append(char value)
         {
             if (GetWriteSpanElseBuilder(1, out Span<char> buffer, out StringBuilder? builder))
             {
-                buffer.AtUnchecked(0) = c;
+                buffer.AtUnchecked(0) = value;
             }
             else
             {
-                builder.Append(c);
+                builder.Append(value);
             }
 
-            ++Length;
+            ++length;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void InternalAppend(char value, int repeatCount)
+        {
+            Debug.Assert(repeatCount > 0);
+
+            if (GetWriteSpanElseBuilder(repeatCount, out Span<char> buffer, out StringBuilder? builder))
+            {
+                buffer.SliceLengthUnchecked(repeatCount).Fill(value);
+            }
+            else
+            {
+                builder.Append(value, repeatCount);
+            }
+
+            length += repeatCount;
+        }
+
+        public void Append(char value, int repeatCount)
+        {
+            switch (repeatCount)
+            {
+                case < 0:
+                    throw new ArgumentOutOfRangeException(nameof(repeatCount), "Count cannot be less than zero.");
+                case 0:
+                    return;
+            }
+
+            InternalAppend(value, repeatCount);
         }
 
         [SkipLocalsInit]
@@ -128,7 +213,7 @@ namespace ResilientParsing.NET.Builders
             if (rune.AsUtf16(out char high, out char c))
             {
                 Append(c);
-                ++Length;
+                ++length;
                 return (high, c);
             }
             
@@ -143,7 +228,7 @@ namespace ResilientParsing.NET.Builders
                 builder.Append(tempBuffer);
             }
 
-            Length += 2;
+            length += 2;
             return (high, c);
         }
 
@@ -167,7 +252,7 @@ namespace ResilientParsing.NET.Builders
                 builder.Append(text);
             }
 
-            Length += text.Length;
+            length += text.Length;
         }
 
         public void Append(scoped ValueStringBuilder other)
@@ -175,15 +260,20 @@ namespace ResilientParsing.NET.Builders
             if (other.GetReadSpanElseBuilder(out ReadOnlySpan<char> otherBuffer, out StringBuilder? otherBuilder))
             {
                 Append(otherBuffer);
+                return;
             }
-            else if (GetWriteSpanElseBuilder(otherBuilder.Length, out Span<char> buffer, out StringBuilder? builder))
+
+            var len = otherBuilder.Length;
+            if (GetWriteSpanElseBuilder(len, out Span<char> buffer, out StringBuilder? builder))
             {
-                otherBuilder.CopyTo(0, buffer, otherBuilder.Length);
+                otherBuilder.CopyTo(0, buffer, len);
             }
             else
             {
                 builder.Append(otherBuilder);
             }
+
+            length += len;
         }
 
         private static int WriteNum(scoped Span<char> buffer, int value)
@@ -221,15 +311,15 @@ namespace ResilientParsing.NET.Builders
                 ? InitialBuffer.SliceUnchecked(Length)
                 : stackalloc char[Bounds.IntMaxChars];
 
-            int length = WriteNum(buffer, value);
+            int pos = WriteNum(buffer, value);
 
             if (inline)
             {
-                Length += length;
+                length += pos;
             }
             else
             {
-                Append(buffer.SliceLengthUnchecked(length));
+                Append(buffer.SliceLengthUnchecked(pos));
             }
         }
 
@@ -245,7 +335,7 @@ namespace ResilientParsing.NET.Builders
             bool inline = Bounds.RangeMaxChars <= SpaceRemainingInInitialBuffer;
 
             Span<char> buffer = inline
-                ? InitialBuffer.SliceUnchecked(Length)
+                ? InitialBuffer.SliceUnchecked(length)
                 : stackalloc char[Bounds.RangeMaxChars];
 
             int pos = WriteNum(buffer, min);
@@ -255,7 +345,7 @@ namespace ResilientParsing.NET.Builders
 
             if (inline)
             {
-                Length += pos;
+                length += pos;
             }
             else
             {
@@ -263,16 +353,7 @@ namespace ResilientParsing.NET.Builders
             }
         }
 
-        public void Clear()
-        {
-            if (Fallback.Type == FallbackType.Builder && !InitialBuffer.IsEmpty)
-            {
-                StringBuilderCache.Release(Fallback.Builder);
-                Fallback = default;
-            }
-
-            Length = 0;
-        }
+        public void Clear() => length = 0;
 
         public override string ToString() => GetReadSpanElseBuilder(out ReadOnlySpan<char> buffer, out StringBuilder? builder) ? buffer.ToString() : builder.ToString();
 
@@ -306,7 +387,7 @@ namespace ResilientParsing.NET.Builders
         {
             if (capacity <= SpaceRemainingInInitialBuffer) // Implicitly handles capacity == 0, returning true with an empty buffer
             {
-                buffer = InitialBuffer.SliceUnchecked(Length);
+                buffer = InitialBuffer.SliceUnchecked(length);
                 builder = null;
                 return true;
             }
@@ -318,7 +399,7 @@ namespace ResilientParsing.NET.Builders
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private bool GetReadSpanElseBuilder(out scoped ReadOnlySpan<char> buffer, [NotNullWhen(false)] out StringBuilder? builder)
+        private bool GetReadSpanElseBuilder(scoped out ReadOnlySpan<char> buffer, [NotNullWhen(false)] out StringBuilder? builder)
         {
             if (Fallback.Type == FallbackType.Builder)
             {
@@ -340,7 +421,7 @@ namespace ResilientParsing.NET.Builders
                 return;
             }
 
-            Debug.Assert(Length <= InitialBuffer.Length);
+            Debug.Assert(length <= InitialBuffer.Length);
 
             var builder = StringBuilderCache.Acquire(Math.Max(minCapacity, InitialBuffer.Length));
             builder.Append(InitialBuffer.SliceLengthUnchecked(Length));
@@ -400,6 +481,15 @@ namespace ResilientParsing.NET.Builders
             public static implicit operator ValueStringBuilderFallback(char[] array) => new(array);
 
             public static implicit operator ValueStringBuilderFallback(StringBuilder builder) => new(builder);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void ReleaseBuilder()
+        {
+            Debug.Assert(Fallback.Type == FallbackType.Builder);
+
+            StringBuilderCache.Release(Fallback.Builder);
+            Fallback = default;
         }
     }
 }
