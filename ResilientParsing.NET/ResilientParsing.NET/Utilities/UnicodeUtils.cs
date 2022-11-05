@@ -14,12 +14,12 @@ namespace ResilientParsing.NET.Utilities
     public static class UnicodeUtils
     {
         /// <summary>
-        /// Extract the 1 or 2 <see cref="char"/> values needed to represent the codepoint represented by <paramref name="rune"/>
+        /// Extract the 1 or 2 <see langword="char"/> values needed to represent the codepoint represented by <paramref name="rune"/>
         /// </summary>
         /// <param name="rune">The codepoint to convert</param>
         /// <param name="high">The high surrogate if <paramref name="rune"/> is not in the BMP. Otherwise <c>'\0'</c> </param>
-        /// <param name="c">The singular <see cref="char"/> if <paramref name="rune"/> is in the BMP. Otherwise the low surrogate</param>
-        /// <returns></returns>
+        /// <param name="c">The singular <see langword="char"/> if <paramref name="rune"/> is in the BMP. Otherwise the low surrogate</param>
+        /// <returns><see langword="true"/> if the rune could be represented by a single <see langword="char"/>. Otherwise <see langword="false"/></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool AsUtf16(this Rune rune, out char high, out char c)
         {
