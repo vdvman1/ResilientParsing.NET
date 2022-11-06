@@ -19,7 +19,7 @@ namespace Tests.ResilientParsing.NET
         [Fact]
         public void MebibytesIsCorrectSize()
         {
-            Assert.Equal(1048576, MemoryUtils.BytesPerKibibyte);
+            Assert.Equal(1048576, MemoryUtils.BytesPerMebibyte);
         }
 
         // TODO: How to test MemoryUtils<T>.RecommendMaxStackAllocationLength?
