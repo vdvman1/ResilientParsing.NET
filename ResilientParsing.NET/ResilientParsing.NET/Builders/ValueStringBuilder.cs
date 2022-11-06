@@ -408,7 +408,7 @@ namespace ResilientParsing.NET.Builders
                 return false;
             }
 
-            buffer = InitialBuffer;
+            buffer = InitialBuffer.SliceLengthUnchecked(Length);
             builder = null;
             return true;
         }
