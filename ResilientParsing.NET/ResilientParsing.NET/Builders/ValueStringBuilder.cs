@@ -28,7 +28,7 @@ namespace ResilientParsing.NET.Builders
         {
             length = 0;
             var array = ArrayPool<char>.Shared.Rent(capacity);
-            InitialBuffer = array.NonNullAsSpan();
+            InitialBuffer = array.NonNullAsSpanUnchecked();
             Fallback = array;
         }
 
@@ -37,7 +37,7 @@ namespace ResilientParsing.NET.Builders
             length = value.Length;
             var array = ArrayPool<char>.Shared.Rent(value.Length);
             Fallback = array;
-            var span = array.NonNullAsSpan();
+            var span = array.NonNullAsSpanUnchecked();
             InitialBuffer = span;
             value.CopyTo(span);
         }
