@@ -22,20 +22,21 @@ namespace ResilientParsing.NET.Utilities
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Span<T> NonNullAsSpan<T>(this T[] array)
+        public static ref T AtUnchecked<T>(this Span<T> span, int index)
+        {
+            Debug.Assert(index < span.Length);
+
+            ref T ptr = ref MemoryMarshal.GetReference(span);
+            ptr = ref Unsafe.Add(ref ptr, index);
+            return ref ptr;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Span<T> NonNullAsSpanUnchecked<T>(this T[] array)
         {
             Debug.Assert(array is not null);
 
             return MemoryMarshal.CreateSpan(ref MemoryMarshal.GetArrayDataReference(array), array.Length);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Span<T> SliceLengthUnchecked<T>(this Span<T> span, int length)
-        {
-            Debug.Assert(length <= span.Length);
-
-            ref T ptr = ref MemoryMarshal.GetReference(span);
-            return MemoryMarshal.CreateSpan(ref ptr, length);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -49,13 +50,12 @@ namespace ResilientParsing.NET.Utilities
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static ref T AtUnchecked<T>(this Span<T> span, int index)
+        public static Span<T> SliceLengthUnchecked<T>(this Span<T> span, int length)
         {
-            Debug.Assert(index < span.Length);
+            Debug.Assert(length <= span.Length);
 
             ref T ptr = ref MemoryMarshal.GetReference(span);
-            ptr = ref Unsafe.Add(ref ptr, index);
-            return ref ptr;
+            return MemoryMarshal.CreateSpan(ref ptr, length);
         }
     }
 }
