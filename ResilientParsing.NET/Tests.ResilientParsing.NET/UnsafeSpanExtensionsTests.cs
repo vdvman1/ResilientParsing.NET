@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace Tests.ResilientParsing.NET
 {
-    public class TestUnsafeSpanExtensions
+    public class UnsafeSpanExtensionsTests
     {
         public static IEnumerable<object[]> GetValueTypesArrayGenerator()
         {
